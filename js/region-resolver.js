@@ -37,6 +37,8 @@ const REGION_DEFAULTS = {
   propertyTaxDeduct: 30,
   // 契税属地法定税率，小数 kind=dec（0.03 = 3%）
   deedTaxRate: 0.03,
+  // 契税非住宅适用税率（部分地区住房与非住宅分档，如河南 3%/4%），小数 kind=dec
+  deedTaxRateNonResidential: null,
   // 土地增值税核定征收率，%  kind=pct
   lvatApprovedRate: null,
   // 个人所得税核定征收比例，%  kind=pct
@@ -54,6 +56,7 @@ const REGION_PARAM_KIND = {
   landUseTax: 'arr',
   propertyTaxDeduct: 'pct',
   deedTaxRate: 'dec',
+  deedTaxRateNonResidential: 'dec',
   lvatApprovedRate: 'pct',
   iitApprovedRate: 'pct',
   localEduSurtax: 'pct',
@@ -77,6 +80,11 @@ const REGION_PARAM_META = {
     label: '契税法定税率',
     unit: '%',
     hint: '法定幅度 3%-5%，由省级人大常委会确定',
+  },
+  deedTaxRateNonResidential: {
+    label: '契税非住宅税率',
+    unit: '%',
+    hint: '部分地区住房与非住宅分档（如河南 3%/4%），为空则沿用法定税率',
   },
   lvatApprovedRate: {
     label: '土地增值税核定征收率',
@@ -183,21 +191,33 @@ const RegionResolver = (function () {
         }
         const n = Number(ov);
         if (!isFinite(n)) {
-          push待确认(key, '手工填写值无效，已改用地区默认值，请重新填写');
-          return;
-        }
+          // 【修复问题29】无效值不中断，继续按城市/省级/全国默认逐级回退
+          push待确认(key, '手工填写值无效，已回退到地区默认值，请重新填写');
+        } else {
         // 归一化：小数型统一存小数；百分数型统一存百分数整数
         if (kind === 'dec') {
-          // 小数型（契税税率）：填 4 意为 4%，填 0.04 意为 4% → 统一折算为小数
-          value[key] = n > 1 ? n / 100 : n;
+          // 【修复问题28】小数型（契税税率）：约定界面填百分数（4=4%）
+          //   兼容 0.04 的小数写法；边界值 1 按 1% 处理（契税不存在 100%）
+          value[key] = n >= 1 ? n / 100 : n;
+          if (value[key] < 0.001 || value[key] > 0.10) {
+            push待确认(key, `填写值「${n}」换算后为 ${(value[key] * 100).toFixed(3)}%，超出契税税率合理区间（0.1%~10%），请核对（界面按百分数填写，如 3 表示 3%）`);
+          }
         } else {
-          // 百分数型：界面明示「填 30 表示 30%」，故按百分数整数解读。
-          // 容错：仅当用户明显填了小数形式（0.3 意为 30%）时才折算；
-          // 数值恰为 1 时按 1% 处理（个别税率为 1%，如个税核定比例）。
-          value[key] = (n > 0 && n < 1) ? n * 100 : n;
+          // 【修复问题28】百分数型（如减除比例 30 表示 30%）：按百分数整数解读
+          //   小于 1 的值视为小数写法（0.3 → 30%），并明确提示换算结果
+          if (n > 0 && n < 1) {
+            value[key] = n * 100;
+            push待确认(key, `填写值「${n}」已按小数解读为 ${(n * 100).toFixed(2)}%；若本意为 ${n}%，请直接填 ${n}`);
+          } else {
+            value[key] = n;
+          }
+          if (value[key] < 0 || value[key] > 100) {
+            push待确认(key, `填写值「${n}」超出百分比合理范围（0~100），请核对`);
+          }
         }
-        source[key] = 'manual';
-        return;
+          source[key] = 'manual';
+          return;
+        }
       }
       // 2) 城市级
       if (c && c[key] !== undefined && c[key] !== null) {

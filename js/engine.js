@@ -101,6 +101,67 @@ const num = (n) => (Number(n) || 0);
 const safeDiv = (a, b) => (b === 0 || !isFinite(a / b) ? 0 : a / b);
 const numFmt = (n) => (Number(n) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ * 百分数统一解析 —— 所有「率」类字段的唯一入口
+ * 约定：界面上的率类字段一律按「百分数」输入（填 5 表示 5%，填 0.5 表示 0.5%）
+ * @param {*} v 原始输入
+ * @param {number} fallback 解析失败时的默认值（**小数**形式，如 0.05）
+ * @returns {number} 小数形式的比率（如 0.05）
+ */
+function pct(v, fallback = 0) {
+  if (v === undefined || v === null || v === '') return fallback;
+  let s = String(v).trim();
+  if (s === '') return fallback;
+  const hasSign = s.endsWith('%');
+  if (hasSign) s = s.slice(0, -1).trim();
+  const n = Number(s);
+  if (!isFinite(n)) return fallback;
+  // 显式带 % 号 → 一定是百分数
+  if (hasSign) return n / 100;
+  // 值 > 1 → 按百分数（5 = 5%）
+  if (Math.abs(n) > 1) return n / 100;
+  // 0 < 值 <= 1：视为百分数的小数部分（0.5 = 0.5%），因为约定率类字段填百分数
+  // 但为避免把「0.05 表示 5%」的旧习惯算错，此处按约定解释为 0.05% = 0.0005
+  // —— 界面已加 % 提示，故统一按百分数处理
+  return n / 100;
+}
+
+/** 把整数/小数年份精确化：不做四舍五入，返回 {years, months, totalMonths} */
+function preciseYears(fromDate, toDate) {
+  if (!fromDate || !toDate || toDate <= fromDate) return { years: 0, months: 0, totalMonths: 0 };
+  let totalMonths = (toDate.getFullYear() - fromDate.getFullYear()) * 12
+    + (toDate.getMonth() - fromDate.getMonth());
+  // 未满整月则减 1 月
+  if (toDate.getDate() < fromDate.getDate()) totalMonths -= 1;
+  if (totalMonths < 0) totalMonths = 0;
+  return { years: Math.floor(totalMonths / 12), months: totalMonths % 12, totalMonths };
+}
+
+/**
+ * 经营所得个人所得税税率表（年）
+ * 依据：《个人所得税法》经营所得税率表
+ */
+const IIT_OPERATING_BRACKETS = [
+  { max: 30000,   rate: 0.05, deduct: 0 },
+  { max: 90000,   rate: 0.10, deduct: 1500 },
+  { max: 300000,  rate: 0.20, deduct: 10500 },
+  { max: 500000,  rate: 0.30, deduct: 40500 },
+  { max: Infinity, rate: 0.35, deduct: 65500 },
+];
+
+/**
+ * 通用超额累进计算（速算扣除数法）
+ * @param {number} base 应纳税所得额
+ * @param {Array<{max:number,rate:number,deduct:number}>} brackets 税率表
+ */
+function computeProgressive(base, brackets) {
+  const b = Math.max(0, num(base));
+  if (b <= 0) return { tax: 0, rate: 0, deduct: 0 };
+  const br = brackets.find((x) => b <= x.max) || brackets[brackets.length - 1];
+  const tax = Math.max(0, b * br.rate - br.deduct);
+  return { tax: round2(tax), rate: br.rate, deduct: br.deduct };
+}
+
 /** 四级超率累进：增值额 ÷ 扣除项目合计 */
 function computeLandVAT(增值额, 扣除项目合计) {
   if (扣除项目合计 <= 0) return { tax: 0, rate: 0, deduction: 0, 增值率: 0 };
@@ -163,7 +224,7 @@ function computeVAT(p) {
       计税方式: 用差额 ? '简易计税（差额 3%）' : '简易计税（全额 3%）',
       征收率: rate, 可抵扣进项: false,
       销项税额: round2(base / (1 + rate) * rate), 计税依据: round2(base),
-      不含税收入: round2(price / (1 + rate)),
+      不含税收入: round2(price - round2(base / (1 + rate) * rate)),
       政策依据: '《增值税法》第十一条、实施条例第七条、2026年第10号公告四(八)',
       提示: 用差额
         ? '自然人非一般纳税人，不适用 9% 一般计税；外购不动产按差额计税（地方执行口径不一，请与主管税务机关确认）'
@@ -180,7 +241,7 @@ function computeVAT(p) {
       计税方式: 是自建 ? '简易计税（全额 3%）' : '简易计税（差额 3%）',
       征收率: rate, 可抵扣进项: false,
       销项税额: round2(base / (1 + rate) * rate), 计税依据: round2(base),
-      不含税收入: round2(price / (1 + rate)),
+      不含税收入: round2(price - round2(base / (1 + rate) * rate)),
       政策依据: '《增值税法》第十一条；不动产销售不适用 3% 减按 1%（2026年第10号公告）',
       提示: '不动产销售不适用小规模纳税人 3% 减按 1% 优惠',
     };
@@ -205,7 +266,7 @@ function computeVAT(p) {
       return {
         计税方式: '一般计税 9%（房地产新项目）', 征收率: rate, 可抵扣进项: true,
         销项税额: round2(base / (1 + rate) * rate), 计税依据: round2(base),
-        不含税收入: round2(base / (1 + rate)),
+         不含税收入: round2(price - round2(base / (1 + rate) * rate)),
         政策依据: '《增值税法》第十条；销售款项 − 向政府支付的土地价款',
       };
     }
@@ -214,7 +275,7 @@ function computeVAT(p) {
       const rate = RATE.VAT.SIMPLE_OLD;
       return {
         计税方式: '简易计税 5%（全额）', 征收率: rate, 可抵扣进项: false,
-        销项税额: round2(price * rate), 计税依据: price,
+         销项税额: round2(price / (1 + rate) * rate), 计税依据: price,
         不含税收入: round2(price / (1 + rate)),
         政策依据: '2026年第10号公告第三条(二)4，5% 优惠至 2027-12-31',
       };
@@ -236,7 +297,7 @@ function computeVAT(p) {
     return {
       计税方式: '简易计税（差额 5%）', 征收率: rate, 可抵扣进项: false,
       销项税额: round2(base / (1 + rate) * rate), 计税依据: round2(base),
-      不含税收入: round2(price / (1 + rate)),
+      不含税收入: round2(price - round2(base / (1 + rate) * rate)),
       政策依据: '2026年第10号公告第三条(二)4（至 2027-12-31）、第三条(四)2（36个月锁定）',
     };
   }
@@ -264,9 +325,9 @@ function computeSurtax(p, 实缴增值税) {
     ? num(p.localEduSurtax) / 100 : RATE.SURTAX.localEdu;
   const 教育费附加 = round2(base * eduRate);
   const 地方教育附加 = round2(base * localEduRate);
-  // "六税两费"减半仅适用于小规模纳税人
-  const isSmall = String(p.主体类型 || '').includes('小规模');
-  const useHalf = isSmall && p.适用小规模减半六税两费 !== false && p.适用小规模减半六税两费 !== '否';
+  // 【修复问题16】统一资格判定：小规模纳税人 / 小型微利企业 / 个体工商户
+  // 依据：财政部 税务总局公告2023年第12号
+  const useHalf = qualifiesSixTaxesHalved(p.主体类型, p);
   const half = useHalf ? 0.5 : 1;
   return {
     城建税: round2(城建税 * half),
@@ -302,8 +363,9 @@ function resolveHoldingYears(p) {
   const 买入 = parseDate(p.购房发票日期);
   const 卖出 = parseDate(p.售房发票日期) || new Date();
   if (买入 && 卖出 > 买入) {
-    const years = Math.round((卖出 - 买入) / (365.25 * 24 * 3600 * 1000));
-    return Math.max(0, years);
+    // 精确到月，不四舍五入（避免 1年7个月被算成 2年而错误免税）
+    const py = preciseYears(买入, 卖出);
+    return Math.max(0, py.years + py.months / 12);
   }
   const y = num(p.持有年限);
   return y > 0 ? y : 0;
@@ -312,9 +374,14 @@ function resolveHoldingYears(p) {
 /** 日期字符串 → Date（无效返回 null） */
 function parseDate(s) {
   if (!s) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s).trim());  if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return isNaN(d.getTime()) ? null : d;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s).trim());
+  if (!m) return null;
+  const Y = Number(m[1]), M = Number(m[2]), D = Number(m[3]);
+  const d = new Date(Y, M - 1, D);
+  if (isNaN(d.getTime())) return null;
+  // 【修复问题33】拒绝「非法日期自动滚动」（如 2026-02-30 会变成 3月2日）
+  if (d.getFullYear() !== Y || d.getMonth() !== M - 1 || d.getDate() !== D) return null;
+  return d;
 }
 
 /**
@@ -363,7 +430,10 @@ function calcInvoiceYears(p) {
 
   const y = num(p.持有年限);
   if (y > 0) {
-    return { years: Math.max(1, Math.floor(y)), source: 'manual', detail: '按填写年限计' };
+    // 【修复问题33】按整年计（满12个月计1年），不足1年不计加计
+    // 原实现 Math.max(1, Math.floor(y)) 会把 0.1 年也算成 1 年
+    const yy = Math.floor(y);
+    return { years: yy, source: 'manual', detail: `按填写年限 ${y} 年计（不足1年不计加计）` };
   }
   return { years: 0, source: 'none', detail: '未填写买入/卖出日期或持有年限' };
 }
@@ -385,7 +455,7 @@ function invoiceBase(发票类型, 发票金额, 专票不得抵扣进项) {
 
 function computeLandVATFull(p, vatResult) {
   const { 主体类型, 资产类型 } = p;
-  const isDev = 主体类型.includes('开发企业');
+  const isDev = String(主体类型 || '').includes('开发企业');
   const isNatural = 主体类型 === '自然人';
 
   // 自然人转让住房：暂免
@@ -401,7 +471,8 @@ function computeLandVATFull(p, vatResult) {
     const 开发成本 = num(p.已发生开发成本);
     // 转让环节税金：含城建税、教育费附加、地方教育附加及印花税
     // 依据：国家税务总局公告2026年第3号第五条
-    const 转让税金 = round2(num(p.转让环节税金) + num(p.卖方印花税额));
+    // 【修复问题8】转让环节税金含附加税费（条例第六条(四)）
+    const 转让税金 = round2(num(p.转让环节税金) + num(p.卖方印花税额) + num(p.卖方附加税费额));
     const 利息 = num(p.利息费用);
     const 可提供利息证明 = p.可提供利息证明 === '是';
 
@@ -411,10 +482,15 @@ function computeLandVATFull(p, vatResult) {
     const 无息比例 = (p.devExpenseRate !== undefined && p.devExpenseRate !== null && p.devExpenseRate !== '')
       ? num(p.devExpenseRate) * 2 / 100 : RATE.LVAT.devExpenseNoInterest;
     let 开发费用;
+    let 利息提示 = '';
     if (可提供利息证明) {
+      // 【修复问题25/26】利息须能按项目分摊、提供金融机构证明，且不超过商业银行同期同类贷款利率
+      // 依据：《土地增值税暂行条例实施细则》第七条(三)
       开发费用 = round2(利息 + (土地金额 + 开发成本) * 有息比例);
+      利息提示 = '；利息须按项目分摊、有金融机构证明，且不超过商业银行同期同类贷款利率，超出部分不得扣除';
     } else {
       开发费用 = round2((土地金额 + 开发成本) * 无息比例);
+      利息提示 = '；未提供利息证明，按(土地+开发成本)的10%以内计算扣除';
     }
     const 加计扣除 = round2((土地金额 + 开发成本) * RATE.LVAT.devExtraDeductionRate);
     const 扣除项目合计 = round2(土地金额 + 开发成本 + 开发费用 + 转让税金 + 加计扣除);
@@ -423,7 +499,7 @@ function computeLandVATFull(p, vatResult) {
     return {
       ...r, 税额: r.tax, 增值额, 扣除项目合计, 不含税收入,
       扣除明细: { 土地金额, 开发成本, 开发费用, 转让税金, 加计扣除 },
-      说明: '房地产开发企业销售新建商品房，四级超率累进；加计 20% 扣除',
+      说明: '房地产开发企业销售新建商品房，四级超率累进；加计 20% 扣除' + (利息提示 || ''),
     };
   }
 
@@ -438,7 +514,9 @@ function computeLandVATFull(p, vatResult) {
   let 加计年数明细 = null;
 
   if (评估价格 > 0) {
-    扣除方式 = '评估价格扣除';
+    // 【修复问题25】评估价格应涵盖：旧房及建筑物评估价 + 取得土地使用权支付金额
+    // + 评估费用 + 相关税金；此处仅取评估价一个数，需用户确认金额完整性
+    扣除方式 = '评估价格扣除（请确认评估价是否已含土地取得成本与评估费用）';
     扣除项目合计 = 评估价格;
   } else if (发票金额 > 0) {
     // 加计基数按发票类型确定；加计年数按国税函〔2010〕220号第七条
@@ -451,11 +529,22 @@ function computeLandVATFull(p, vatResult) {
     扣除项目合计 = round2(基数 * (1 + RATE.LVAT.oldHouseDeductionRate * 加计年数));
     加计年数明细 = yr;
   } else {
-    扣除方式 = '核定征收';
+    // 【修复问题19】核定征收必须由用户显式勾选（须符合法定情形）
+    // 依据：《土地增值税暂行条例》第九条——仅在隐瞒虚报成交价、扣除项目金额不实、
+    //      转让价格低于评估价且无正当理由等情形下，才按核定/评估价格计算征收
+    const 允许核定 = (p.lvatUseApproved === '是' || p.lvatUseApproved === true);
+    if (!允许核定) {
+      return {
+        税额: 0, 需补充资料: true, 扣除方式: '资料不足',
+        扣除项目合计: 0, 增值额: 0, 增值率: 0, 不含税收入,
+        说明: '⚠️ 缺少评估价格或购房发票，无法按查账方式计算。若符合核定征收法定情形，请在界面勾选「使用核定征收」。',
+      };
+    }
+    扣除方式 = '核定征收（用户勾选）';
     // 核定征收率：地区参数 > 用户手工输入 > 全国默认 5%
     核定征收率 = (p.lvatApprovedRate !== undefined && p.lvatApprovedRate !== null && p.lvatApprovedRate !== '')
-      ? num(p.lvatApprovedRate) / 100
-      : (num(p.核定征收率) || 0.05);
+      ? pct(p.lvatApprovedRate, 0.05)
+      : pct(p.核定征收率, 0.05);
     扣除项目合计 = 0;
     const 增值额 = 不含税收入;
     const r = computeLandVAT(增值额, 扣除项目合计 || 1);
@@ -474,7 +563,7 @@ function computeLandVATFull(p, vatResult) {
     加计扣除 = round2((num(p.土地价款) + num(p.已发生开发成本)) * RATE.LVAT.devExtraDeductionRate);
   }
   // 转让环节税金可扣除（含印花税；购房契税可扣但不计入加计基数）
-  const 转让税金 = round2(num(p.转让环节税金) + num(p.卖方印花税额) + num(p.购房契税));
+  const 转让税金 = round2(num(p.转让环节税金) + num(p.卖方印花税额) + num(p.购房契税) + num(p.卖方附加税费额));
 
   const totalDeduct = round2(扣除项目合计 + 加计扣除 + 转让税金);
   const 增值额 = round2(不含税收入 - totalDeduct);
@@ -494,9 +583,8 @@ function computeLandVATFull(p, vatResult) {
 function computeStamp(p, side) {
   const { 资产类型 } = p;
   const 主体类型 = side === '卖方' ? p.主体类型 : (p.买方主体类型 || p.主体类型);
-  const isSmall = String(主体类型 || '').includes('小规模');
-  const useHalf = p.适用小规模减半六税两费 !== false && p.适用小规模减半六税两费 !== '否';
-  const half = isSmall && useHalf ? 0.5 : 1;
+  // 【修复问题16】与附加税口径一致：小规模 / 小微 / 个体户
+  const half = qualifiesSixTaxesHalved(主体类型, p) ? 0.5 : 1;
 
   // 计税依据：不含增值税的成交金额
   const 成交总价 = num(p.成交总价);
@@ -536,9 +624,15 @@ function computeDeedTax(p) {
   // 属地法定税率（法定幅度 3%-5%，由省级人大常委会决定）
   // 优先级：地区参数（p.deedTaxRate，小数）> 内置回退表 > 全国默认 3%
   const 城市 = p.城市 || 'default';
-  const areaRate = (p.deedTaxRate !== undefined && p.deedTaxRate !== null && p.deedTaxRate !== '')
-    ? num(p.deedTaxRate)
-    : (RATE.DEED.areaRate[城市] ?? RATE.DEED.defaultAreaRate);
+  // 【修复问题31】非住宅可适用地区单独税率（如河南 4%），优先于通用 deedTaxRate
+  const 用非住宅率 = (资产类型 !== '住宅类')
+    && p.deedTaxRateNonResidential !== undefined && p.deedTaxRateNonResidential !== null
+    && p.deedTaxRateNonResidential !== '';
+  const areaRate = 用非住宅率
+    ? num(p.deedTaxRateNonResidential)
+    : ((p.deedTaxRate !== undefined && p.deedTaxRate !== null && p.deedTaxRate !== '')
+        ? num(p.deedTaxRate)
+        : (RATE.DEED.areaRate[城市] ?? RATE.DEED.defaultAreaRate));
 
   // 企业/合伙企业：按属地法定税率，不享受住房优惠
   if (主体类型 !== '自然人') {
@@ -586,9 +680,9 @@ function computeIncomeTax(p, vatResult) {
   const { 主体类型, 资产类型 } = p;
   const 收入 = num(p.成交总价);
   const isNatural = 主体类型 === '自然人';
-  const isPartner = 主体类型.includes('有限合伙');
-  const isDev = 主体类型.includes('开发企业');
-  const isSmall = 主体类型.includes('小规模');
+  const isPartner = String(主体类型 || '').includes('有限合伙');
+  const isDev = String(主体类型 || '').includes('开发企业');
+  const isSmall = String(主体类型 || '').includes('小规模');
 
   // ---- 自然人 ----
   if (isNatural) {
@@ -599,25 +693,33 @@ function computeIncomeTax(p, vatResult) {
           税额: 0, 税率: 0, 应纳税所得额: 0, 说明: '“满五唯一”免征个人所得税（财税字〔1999〕278号）',
         };
       }
-      const 收入额 = num(p.核定征收收入额) > 0 ? num(p.核定征收收入额) : 收入;
+      // 收入取不含税收入（问题3）；扣除财产原值（问题2）；税金含附加+印花+土增（问题9）
+      const 不含税收入0 = num(vatResult && vatResult.不含税收入) > 0 ? num(vatResult.不含税收入) : 收入;
+      const 收入额 = num(p.核定征收收入额) > 0 ? num(p.核定征收收入额) : 不含税收入0;
+      const 原值 = num(p.购置原价);
       const 费用 = num(p.合理费用);
-      const 税金 = num(p.卖方增值税附加合计);
-      const 应纳税所得额 = round2(Math.max(0, 收入额 - 费用 - 税金));
+      const 税金 = num(p.卖方可扣除税金);
+      const 应纳税所得额 = round2(Math.max(0, 收入额 - 原值 - 费用 - 税金));
       const tax = round2(应纳税所得额 * RATE.IIT.personalTransfer);
       return {
         税额: tax, 税率: RATE.IIT.personalTransfer, 应纳税所得额, 收入额,
-        说明: '财产转让所得 20%；应纳税所得额 = 转让收入 − 原值 − 合理费用',
+        说明: `财产转让所得 20%；应纳税所得额 = 转让收入（不含税 ${numFmt(收入额)}） − 原值 ${numFmt(原值)} − 合理费用 ${numFmt(费用)} − 税金 ${numFmt(税金)}`,
       };
     }
     // 自然人转让商办厂房：财产转让所得 20%，核定/查账征收
-    const 收入额 = num(p.核定征收收入额) > 0 ? num(p.核定征收收入额) : 收入;
+    // 收入取不含税收入（问题3）；扣除财产原值（问题2）
+    const 不含税收入1 = num(vatResult && vatResult.不含税收入) > 0 ? num(vatResult.不含税收入) : 收入;
+    const 收入额 = num(p.核定征收收入额) > 0 ? num(p.核定征收收入额) : 不含税收入1;
+    const 原值1 = num(p.购置原价);
     const 费用 = num(p.合理费用);
-    const 应纳税所得额 = round2(Math.max(0, 收入额 - 费用));
+    const 税金1 = num(p.卖方可扣除税金);
+    const 应纳税所得额 = round2(Math.max(0, 收入额 - 原值1 - 费用 - 税金1));
     const tax = round2(应纳税所得额 * RATE.IIT.personalTransfer);
-    // 原值凭证不完整 → 核定征收（比例取地区参数，缺省则沿用 20% 查账口径并提示）
-    const 核定比例 = (p.iitApprovedRate !== undefined && p.iitApprovedRate !== null)
-      ? num(p.iitApprovedRate) / 100 : null;
-    if (核定比例 !== null) {
+    // 【修复问题18】核定征收必须由用户显式勾选（能提供原值凭证的应据实征收）
+    // 依据：国税发〔2006〕108号——能提供完整准确原值凭证的据实征收，不能提供的才核定
+    const 允许个税核定 = (p.iitUseApproved === '是' || p.iitUseApproved === true);
+    const 核定比例 = 允许个税核定 ? pct(p.iitApprovedRate, 0) : 0;
+    if (核定比例 > 0) {
       const 核定税额 = round2(收入额 * 核定比例);
       return {
         税额: 核定税额, 税率: 核定比例, 应纳税所得额: 收入额, 收入额, 核定征收: true,
@@ -632,15 +734,21 @@ function computeIncomeTax(p, vatResult) {
 
   // ---- 有限合伙企业：不缴企业所得税，穿透至合伙人 ----
   if (isPartner) {
-    const 利润 = round2(num(p.应纳税所得额_企业));
+    // 【修复问题32】亏损（负利润）不产生税负，按 0 计税并提示可结转
+    // 依据：《企业所得税法》第十八条（亏损结转以后年度弥补）
+    const 利润原始 = num(p.应纳税所得额_企业);
+    const 利润 = round2(Math.max(0, 利润原始));
+    const 亏损 = 利润原始 < 0 ? 利润原始 : 0;
     const 自然人合伙人占比 = num(p.自然人合伙人利润占比) / 100;
     const 自然人部分 = round2(利润 * 自然人合伙人占比);
     const 法人部分 = round2(利润 - 自然人部分);
     const 按经营所得 = p.合伙人个税计税方式 === '经营所得 5%-35%';
     let 自然人税;
     if (按经营所得) {
-      const r = RATE.PARTNERSHIP.operating;
-      自然人税 = round2(自然人部分 * r.max); // 简化：以最高档展示，实际按超额累进
+      // 【修复问题21】经营所得 5%~35% 超额累进（原实现直接乘最高档 35%，严重高估）
+      // 依据：《个人所得税法》经营所得税率表；财税〔2000〕91号
+      const prog = computeProgressive(自然人部分, IIT_OPERATING_BRACKETS);
+      自然人税 = prog.tax;
     } else {
       自然人税 = round2(自然人部分 * RATE.IIT.personalTransfer);
     }
@@ -699,7 +807,8 @@ function computePropertyTax(p) {
       return { 税额: 0, 计税方式: '免征', 说明: '个人所有非营业用的房产免征房产税（国发〔1986〕90号）' };
     }
     const 原值 = num(p.房产原值);
-    const 减除比例 = num(p.减除比例) / 100;
+    // 【修复问题22】优先取地区参数（pickDeduct 内部已处理手工选择与默认值）
+    const 减除比例 = pickDeduct(p);
     const 计税依据 = round2(原值 * (1 - 减除比例));
     const tax = round2(计税依据 * RATE.PROPERTY_TAX.fromValue * half);
     return {
@@ -717,18 +826,21 @@ function computePropertyTax(p) {
   let 说明 = '不含增值税租金 × 12%';
 
   if (住房出租) {
-    // 4% 优惠为双重条件：标的须为住房 且 承租人为个人或专业化规模化住房租赁企业
-    // 依据：财税〔2008〕24号（个人）、财政部 税务总局 住房城乡建设部公告2021年第24号第二条（单位）
+    // 【修复问题23】区分两类主体，原实现把「承租人条件」错误套用到个人身上：
+    //   ① 个人（自然人）出租住房：不区分用途，一律减按 4% —— 财税〔2008〕24号
+    //   ② 单位出租住房：仅向个人/专业化规模化住房租赁企业出租时减按 4% —— 2021年第24号
     const 合规承租人 = 承租人类型 === '个人' || 承租人类型 === '专业化规模化住房租赁企业';
-    if (合规承租人) {
+    if (isNatural) {
       rate = RATE.PROPERTY_TAX.personalRentHousing;
-      说明 = (isNatural ? '个人出租住房' : '单位出租住房') +
-        `减按 4%（承租人：${承租人类型}）`;
+      说明 = '个人出租住房，不区分用途，减按 4%（财税〔2008〕24号）';
+    } else if (合规承租人) {
+      rate = RATE.PROPERTY_TAX.personalRentHousing;
+      说明 = `单位出租住房减按 4%（承租人：${承租人类型}，2021年第24号）`;
     } else {
-      说明 = '出租住房但承租人不符合 4% 优惠条件（须为个人或专业化规模化住房租赁企业），按 12%';
+      说明 = '单位出租住房且承租人不符合条件，按 12%（须为个人或专业化规模化住房租赁企业）';
     }
   }
-  const 不含税租金 = round2(租金收入 / (1 + num(p.租金增值税率 || 0)));
+  const 不含税租金 = round2(租金收入 / (1 + pct(p.租金增值税率)));
   const 计税依据 = 不含税租金;
   const tax = round2(计税依据 * rate * half);
   return {
@@ -744,10 +856,13 @@ function computePropertyTax(p) {
  * ⚠️ 一般纳税人若符合小型微利企业条件，同样享受减半
  * ========================================================================== */
 function qualifiesSixTaxesHalved(主体类型, p) {
+  // 【修复问题16/17】统一判定，并尊重用户的「关闭减半」开关
+  if (p && (p.适用小规模减半六税两费 === false || p.适用小规模减半六税两费 === '否')) return false;
   if (!主体类型) return false;
   const t = String(主体类型);
   if (t.includes('小规模')) return true;
-  if (p.符合小型微利企业 === '是') return true;
+  if (t.includes('个体工商户')) return true;
+  if (p && p.符合小型微利企业 === '是') return true;
   return false;
 }
 
@@ -759,6 +874,11 @@ function computeLandUseTax(p) {
   const isNatural = 主体类型 === '自然人';
   const 土地等级 = num(p.土地等级) || 1;
   const 面积 = num(p.实际占用面积);
+
+  // 【修复问题24】个人出租住房：免征城镇土地使用税（财税〔2008〕24号）
+  if (isNatural && p.持有环节用途 === '出租' && p.出租标的 === '住房') {
+    return { 税额: 0, 说明: '个人出租住房免征城镇土地使用税（财税〔2008〕24号）' };
+  }
 
   // 个人非营业用房：省级授权暂缓征收（〔1988〕国税地字第015号；江苏 苏税三〔89〕017号）
   // ⚠️ 用于生产经营的应照章征收；居住与经营并用的按各自使用面积分别征免
@@ -812,8 +932,9 @@ function calculate(p) {
   const P = { ...p, ...RV };
   if (REG.城市名称) P.城市名称 = REG.城市名称;
 
-  const 主体类型 = P.主体类型;
-  const 资产类型 = P.资产类型;
+  // 【健壮性】持有场景可能只有「持有主体类型」，此处统一兜底，避免 undefined.includes 崩溃
+  const 主体类型 = P.主体类型 || P.持有主体类型 || '';
+  const 资产类型 = P.资产类型 || '商办厂房类';
 
   // ---------- 卖方：增值税 ----------
   const vat = computeVAT(P);
@@ -833,38 +954,54 @@ function calculate(p) {
   out.卖方.印花税 = computeStamp(卖方印花税参数, '卖方');
 
   // ---------- 卖方：土地增值税 ----------
-  const lvat = computeLandVATFull({ ...P, 卖方印花税额: num(out.卖方.印花税.税额) }, vat);
+  // 【修复问题8】「与转让房地产有关的税金」应含附加税费 + 印花税
+  // 依据：《土地增值税暂行条例》第六条(四)、《实施细则》第七条(五)
+  const lvat = computeLandVATFull({
+    ...P,
+    卖方印花税额: num(out.卖方.印花税.税额),
+    卖方附加税费额: num(surtax.合计),
+  }, vat);
+  // 【修复问题27】普通标准住宅：增值率未超过 20% 的免征土地增值税
+  // 依据：《土地增值税暂行条例》第八条(一)
+  const 是普通住宅 = (资产类型 === '住宅类')
+    && (P.是普通标准住宅 === '是' || P.是普通标准住宅 === true);
+  if (是普通住宅 && lvat && !lvat.需补充资料 && num(lvat.增值率) <= 20 && num(lvat.税额) > 0) {
+    lvat.原税额 = num(lvat.税额);
+    lvat.税额 = 0;
+    lvat.免征 = true;
+    lvat.说明 = (lvat.说明 || '') + '；普通标准住宅增值率未超过20%，免征土地增值税（条例第八条(一)）';
+  }
   out.卖方.土地增值税 = lvat;
 
   // ---------- 卖方：所得税 ----------
-  const iit = computeIncomeTax(P, vat);
+  // 【修复问题9】可扣除税金 = 附加 + 印花 + 土增
+  // 依据：国税发〔2006〕108号（转让住房过程中缴纳的税金及合理费用可扣除）
+  const 卖方可扣除税金 = num(surtax.合计) + num(out.卖方.印花税.税额) + num(lvat.税额);
+  const iit = computeIncomeTax({ ...P, 卖方可扣除税金 }, vat);
   out.卖方.所得税 = iit;
 
+  // 【修复问题7】合计口径 = 税负总额（口径A）
+  // 增值税用「实缴额（销项 − 进项）」，与附加税费计税依据保持一致
   out.卖方.合计 = round2(
-    num(vat.销项税额) + surtax.合计 + num(lvat.税额) + num(out.卖方.印花税.税额) + num(iit.税额)
+    实缴增值税 + num(surtax.合计) + num(lvat.税额) + num(out.卖方.印花税.税额) + num(iit.税额)
   );
+  // 保留票面口径供参考对照（不参与合计）
+  out.卖方.销项税额 = num(vat.销项税额);
+  out.卖方.实缴增值税额 = 实缴增值税;
   out.卖方.不含增值税价 = vat.不含税收入;
 
   // ---------- 买方 ----------
-  // 买方增值税（价税分离参考）：按买方主体身份判定
-  const 买方主体 = P.买方主体类型 || 主体类型;
-  let 买方增值税额 = 0;
-  let 买方增值税说明 = '买方不涉及增值税';
-  if (买方主体 === '自然人') {
-    if (资产类型 === '住宅类') {
-      // 个人购买住房，销售方为自然人时转让环节增值税由卖方承担；购买环节无进项
-      买方增值税说明 = '个人购买住房：购买环节不产生增值税';
-    } else {
-      买方增值税额 = round2(num(P.成交总价) * RATE.VAT.GENERAL / (1 + RATE.VAT.GENERAL));
-      买方增值税说明 = '个人购买商办厂房：按一般计税 9% 价税分离（参考）';
-    }
-  } else if (买方主体.includes('小规模')) {
-    买方增值税额 = round2(num(P.成交总价) * RATE.VAT.SMALL_3 / (1 + RATE.VAT.SMALL_3));
-    买方增值税说明 = '小规模纳税人购买不动产：按 3% 简易计税价税分离（参考，不适用减按1%）';
-  } else {
-    买方增值税额 = round2(num(P.成交总价) * RATE.VAT.GENERAL / (1 + RATE.VAT.GENERAL));
-    买方增值税说明 = '一般纳税人购买不动产：按 9% 一般计税价税分离（进项抵扣视用途而定）';
-  }
+  // 【修复问题4】买方进项税额 = 卖方票面销项税额，与实际交易挂钩
+  //   原实现按「买方自己身份」另算 3%/9%，导致：
+  //   ① 卖方 9%、买方小规模时按 3% 拆（与票面不符）
+  //   ② 卖方免税时仍扣 9%「税」，契税依据被错误压低
+  // 依据：《增值税暂行条例》第八条（进项税额为票面税额）；
+  //      《契税法》第四条（计税依据为不含增值税的成交价格，免税则全额）
+  const 卖方销项税额 = num(vat.销项税额);
+  const 买方增值税额 = 卖方销项税额;
+  const 买方增值税说明 = 卖方销项税额 > 0
+    ? `买方进项税额 = 卖方票面销项税额 ${numFmt(卖方销项税额)}（能否抵扣视买方用途而定）`
+    : '卖方本环节免征增值税（无销项），买方无进项税额；契税按全额成交价计税';
   out.买方.增值税参考 = { 税额: 买方增值税额, 说明: 买方增值税说明 };
 
   const deed = computeDeedTax({ ...P, 买方增值税额 });

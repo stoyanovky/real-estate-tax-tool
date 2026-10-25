@@ -15,7 +15,8 @@
     '专票不得抵扣进项', '购房契税',
   ];
   const TEXT_FIELDS = ['城市', '主体类型', '资产类型', '持有主体类型', '开发销售模式', '视角',
-    '房产取得时间', '是否自建', '建设完成时间', '满五唯一', '可提供利息证明',
+    '房产取得时间', '是否自建', '建设完成时间', '建造开工时间', '满五唯一', '可提供利息证明',
+    'lvatUseApproved', 'iitUseApproved', '是普通标准住宅',
     '符合小型微利企业', '合伙人个税计税方式', '买方主体类型', '住房套数',
     '持有环节用途', '是否营业用房', '减除比例', '出租标的', '承租人类型', '土地等级',
     '场景类型', '所在区域', '购房发票类型', '自然人商办允许差额',
@@ -162,14 +163,19 @@
 
     // 增值税相关
     setVisible('房产取得时间', isTransfer && !isNatural && !isDev);
+    // 【修复问题13】正常销售用「建造开工时间」判老项目；自建办证后用「建设完成时间」
+    setVisible('建造开工时间', isTransfer && isDev && p['开发销售模式'] === '正常房产销售');
     setVisible('建设完成时间', isTransfer && isDev && p['开发销售模式'] !== '正常房产销售');
-    setVisible('是否自建', isTransfer && isSmall);
+    // 【修复问题15】是否自建对「非自然人」全部可见（一般纳税人老自建房也需区分全额/差额）
+    setVisible('是否自建', isTransfer && !isNatural);
     setVisible('进项税额', isTransfer);
     setVisible('满五唯一', isTransfer && isNatural && p['资产类型'] === '住宅类');
     setVisible('合理费用', isTransfer && isNatural);
     setVisible('核定征收收入额', isTransfer && isNatural);
-    setVisible('应纳税所得额_企业', isTransfer && !isNatural && !(p['主体类型'] || '').includes('有限合伙'));
-    setVisible('符合小型微利企业', isTransfer && !isNatural && isSmall && !(p['主体类型'] || '').includes('有限合伙'));
+    // 【修复问题20】合伙企业同样需要填利润（穿透计税），不再隐藏
+    setVisible('应纳税所得额_企业', isTransfer && !isNatural);
+    // 【修复问题17】小型微利企业资格：非自然人均可见（一般纳税人也可能是小微）
+    setVisible('符合小型微利企业', !isNatural);
     setVisible('自然人合伙人利润占比', isTransfer && (p['主体类型'] || '').includes('有限合伙'));
     setVisible('合伙人个税计税方式', isTransfer && (p['主体类型'] || '').includes('有限合伙'));
 
@@ -188,9 +194,11 @@
     setVisible('利息费用', isDevSale);
     setVisible('可提供利息证明', isDevSale);
     setVisible('评估价格', isTransfer && !isDevSale);
+    setVisible('是普通标准住宅', isTransfer && p['资产类型'] === '住宅类');
     setVisible('购房发票金额', isTransfer && !isDevSale);
     setVisible('核定征收率', isTransfer && !isDevSale);
-    setVisible('购置原价', isTransfer && (isSmall || (!isNatural && !isDev && p['房产取得时间'] === '2016.4.30前')));
+    // 【修复问题14】购置原价：除房企新项目外均应可见（自然人差额计税同样需要）
+    setVisible('购置原价', isTransfer && (!isDev || p['房产取得时间'] === '2016.4.30前'));
 
     // 持有环节
     const holding = scene === 'holding';
@@ -330,10 +338,14 @@
           <thead><tr><th style="width:68%">税种 / 费用</th><th class="num">金额（元）</th></tr></thead>
           <tbody>
             ${row('增值税及附加', `${v.计税方式}${v.优惠 ? '；' + v.优惠 : ''}${v.可抵扣进项 ? '；进项可抵扣' : ''}`, v.销项税额,
-              v.计税依据 !== undefined ? `计税依据 ${numFmt(v.计税依据)} × ${((v.征收率 || 0) * 100).toFixed(0)}%${v.可抵扣进项 ? '，减进项 ' + numFmt(v.进项税额) : ''}` : '')}
+              v.计税依据 !== undefined
+                ? (v.可抵扣进项
+                    ? `含税依据 ${numFmt(v.计税依据)} ÷ (1+${((v.征收率 || 0) * 100).toFixed(0)}%) × ${((v.征收率 || 0) * 100).toFixed(0)}%，减进项 ${numFmt(v.进项税额)}`
+                    : `含税依据 ${numFmt(v.计税依据)} ÷ (1+${((v.征收率 || 0) * 100).toFixed(0)}%) × ${((v.征收率 || 0) * 100).toFixed(0)}%`)
+                : '')}
             ${surchargeRows}
             ${row('土地增值税', lv.说明 || '', lv.税额,
-              lv.核定征收 ? `不含税收入 ${numFmt(lv.不含税收入)} × ${lv.核定征收率}%` :
+              lv.核定征收 ? `不含税收入 ${numFmt(lv.不含税收入)} × ${((lv.核定征收率 || 0) * 100).toFixed(2)}%` :
               (lv.增值额 !== undefined ? `增值额 ${numFmt(lv.增值额)} ÷ 扣除项目 ${numFmt(lv.扣除项目合计)} = 增值率 ${lv.增值率}% → 超率累进 ${((lv.rate || 0) * 100).toFixed(0)}% 速算扣除 ${((lv.deduction || 0) * 100).toFixed(0)}%` : ''),
               lvatExtra)}
             ${row('印花税（产权转移书据）', sp.说明 || '', sp.税额,
@@ -578,9 +590,18 @@
 
   function bindButtons() {
     $('#btnReset').addEventListener('click', () => {
-      document.querySelectorAll('.tab-panels input').forEach((i) => { i.value = ''; });
-      document.querySelectorAll('.tab-panels select').forEach((s) => { s.selectedIndex = 0; });
-      const def = { 核定征收率: '5', 自然人合伙人利润占比: '100', 减除比例: '10', 土地等级: '1', 租金增值税率: '0' };
+      // 【修复问题36】清理范围扩大到整个表单（含地区参数面板），默认值与非重置初始状态一致
+      document.querySelectorAll('input, select').forEach((el) => {
+        if (el.type === 'button' || el.type === 'submit' || el.id === '城市') return;
+        if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
+      });
+      const def = {
+        核定征收率: '5', 自然人合伙人利润占比: '100',
+        减除比例: '30',            // 初始值 30%（原重置成 10%，与初始态不一致）
+        土地等级: '1', 租金增值税率: '0',
+        lvatUseApproved: '否', iitUseApproved: '否',
+        建造开工时间: '2016.5.1后',
+      };
       Object.entries(def).forEach(([id, v]) => { const el = document.getElementById(id); if (el) el.value = v; });
       refresh();
     });
@@ -604,13 +625,28 @@
     const rows = [['场景', p['场景类型']], ['卖方主体', p['主体类型']], ['资产类型', p['资产类型']],
       ['城市', p['城市']], ['成交总价', p['成交总价']], []];
     if (p['场景类型'] === 'transfer') {
+      // 【修复问题35】导出完整链条：销项/进项/实缴分列 + 扣除明细 + 地区参数来源
       rows.push(['【卖方】', '', '']);
-      rows.push(['增值税', r.卖方.增值税.销项税额, r.卖方.增值税.计税方式]);
-      rows.push(['增值税附加合计', r.卖方.附加税费.合计, '']);
+      rows.push(['增值税-计税方式', '', r.卖方.增值税.计税方式 || '']);
+      rows.push(['增值税-销项税额', r.卖方.增值税.销项税额, '票面税额']);
+      rows.push(['增值税-进项税额', r.卖方.增值税.进项税额 || 0, r.卖方.增值税.可抵扣进项 ? '可抵扣' : '不可抵扣']);
+      rows.push(['增值税-实缴（计入合计）', r.卖方.实缴增值税额 != null ? r.卖方.实缴增值税额 : r.卖方.增值税.实缴增值税, '合计口径=税负总额']);
+      rows.push(['增值税-不含税收入', r.卖方.不含增值税价, '']);
+      rows.push(['增值税附加合计', r.卖方.附加税费.合计, '以实缴增值税为计税依据']);
       rows.push(['土地增值税', r.卖方.土地增值税.税额, r.卖方.土地增值税.说明 || '']);
+      if (r.卖方.土地增值税 && r.卖方.土地增值税.扣除明细) {
+        const dd = r.卖方.土地增值税.扣除明细;
+        Object.keys(dd).forEach((k) => rows.push([`  土增税扣除-${k}`, dd[k], '']));
+      }
       rows.push(['印花税', r.卖方.印花税.税额, r.卖方.印花税.说明 || '']);
       rows.push(['所得税', r.卖方.所得税.税额, r.卖方.所得税.说明 || '']);
-      rows.push(['卖方合计', r.卖方.合计, '']);
+      rows.push(['卖方合计', r.卖方.合计, '税负总额口径']);
+      if (r.地区参数 && r.地区参数.来源) {
+        Object.keys(r.地区参数.来源).forEach((k) => {
+          rows.push([`地区参数-${k}`, (r.地区参数.取值 || {})[k], `来源:${r.地区参数.来源[k]}`]);
+        });
+      }
+      (r.地区参数 && r.地区参数.待确认 || []).forEach((w) => rows.push(['⚠️待确认', '', w]));
       rows.push(['【买方】', '', '']);
       rows.push(['契税', r.买方.契税.税额, r.买方.契税.说明 || '']);
       rows.push(['印花税', r.买方.印花税.税额, r.买方.印花税.说明 || '']);

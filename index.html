@@ -209,7 +209,15 @@
               </select>
             </label>
             <label class="field" data-when="seller">
-              <span class="label">建设/开工时间（开发企业）</span>
+              <span class="label">建造开工时间（正常销售判老项目）</span>
+              <select id="建造开工时间">
+                <option value="2016.5.1后">2016.5.1 及以后（新项目 9%）</option>
+                <option value="2016.4.30前">2016.4.30 前（老项目可选简易 5%）</option>
+              </select>
+              <small>依据：施工许可证注明的开工日期</small>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">建设完成时间（自建办证后转让）</span>
               <select id="建设完成时间">
                 <option value="2016.4.30前">2016.4.30 前</option>
                 <option value="2016.5.1后">2016.5.1 及以后</option>
@@ -234,6 +242,14 @@
         <div class="field-group">
           <div class="group-title">土地增值税扣除项</div>
           <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">是否为普通标准住宅</span>
+              <select id="是普通标准住宅">
+                <option value="否">否</option>
+                <option value="是">是（增值率≤20% 免征土增税）</option>
+              </select>
+              <small>依据条例第八条(一)</small>
+            </label>
             <label class="field" data-when="seller">
               <span class="label">评估价格</span>
               <input type="number" id="评估价格" placeholder="旧房转让：优先采用" min="0" step="0.01">
@@ -301,6 +317,14 @@
               <small>单位 %</small>
             </label>
             <label class="field" data-when="seller">
+              <span class="label">使用核定征收（土地增值税）</span>
+              <select id="lvatUseApproved">
+                <option value="否">否 — 按查账方式（需评估价或购房发票）</option>
+                <option value="是">是 — 符合法定核定情形</option>
+              </select>
+              <small>依据条例第九条：仅在隐瞒虚报成交价、扣除项目不实等情形下适用</small>
+            </label>
+            <label class="field" data-when="seller">
               <span class="label">进项税额（一般纳税人可抵扣）</span>
               <input type="number" id="进项税额" placeholder="单位：元" min="0" step="0.01">
             </label>
@@ -317,6 +341,15 @@
             <label class="field" data-when="seller">
               <span class="label">核定征收收入额（自然人）</span>
               <input type="number" id="核定征收收入额" placeholder="留空则按成交总价" min="0" step="0.01">
+              <small>注意：如需按核定征收计算个税，请勾选下方开关</small>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">使用核定征收（个人所得税）</span>
+              <select id="iitUseApproved">
+                <option value="否">否 — 有原值凭证，据实征收</option>
+                <option value="是">是 — 无法提供原值凭证</option>
+              </select>
+              <small>依据国税发〔2006〕108号：能提供原值凭证的应据实征收</small>
             </label>
           </div>
           <div class="grid-2">
