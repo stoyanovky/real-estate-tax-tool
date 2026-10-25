@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>不动产交易及持有环节税费计算工具</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-mark">税</div>
+      <div class="brand-text">
+        <h1>不动产交易及持有环节税费计算工具</h1>
+        <p>按主体类型 · 资产类型 · 交易要素，自动测算增值税及附加、土地增值税、印花税、所得税、契税、房产税、城镇土地使用税</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-ghost" id="btnPolicy">政策依据</button>
+      <button class="btn btn-ghost" id="btnReset">重置</button>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ============ 左：输入区 ============ -->
+  <section class="panel panel-input">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="basics" role="tab">基础信息</button>
+      <button class="tab" data-tab="seller" role="tab">卖方要素</button>
+      <button class="tab" data-tab="buyer" role="tab">买方要素</button>
+      <button class="tab" data-tab="holding" role="tab">持有要素</button>
+    </div>
+
+    <div class="tab-panels">
+      <!-- 基础信息 -->
+      <div class="tab-panel active" data-panel="basics">
+        <div class="field-group">
+          <div class="group-title">交易场景</div>
+          <div class="grid-2">
+            <label class="field">
+              <span class="label">场景类型 <i class="req">*</i></span>
+              <select id="场景类型">
+                <option value="transfer">资产交易环节（买卖）</option>
+                <option value="holding">资产持有环节</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="label">计算城市 <i class="req">*</i></span>
+              <select id="城市">
+                <option value="nj">南京市</option>
+              </select>
+              <small>下拉选项由地区参数表自动生成（35 个城市）</small>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field">
+              <span class="label">所在区域（城建税档次）</span>
+              <select id="所在区域">
+                <option value="市区">市区（城建税 7%）</option>
+                <option value="县城、镇">县城、镇（城建税 5%）</option>
+                <option value="其他地区">其他地区（城建税 1%）</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">主体与资产</div>
+          <div class="grid-2">
+            <label class="field">
+              <span class="label">卖方主体类型 <i class="req">*</i></span>
+              <select id="主体类型">
+                <optgroup label="自然人">
+                  <option value="自然人">自然人</option>
+                </optgroup>
+                <optgroup label="公司制企业">
+                  <option value="小规模纳税人有限责任公司">小规模纳税人有限责任公司</option>
+                  <option value="一般纳税人有限责任公司">一般纳税人有限责任公司</option>
+                </optgroup>
+                <optgroup label="合伙企业">
+                  <option value="小规模纳税人有限合伙企业">小规模纳税人有限合伙企业</option>
+                  <option value="一般纳税人有限合伙企业">一般纳税人有限合伙企业</option>
+                </optgroup>
+                <optgroup label="房地产开发企业">
+                  <option value="一般纳税人开发企业">一般纳税人开发企业</option>
+                </optgroup>
+              </select>
+            </label>
+            <label class="field">
+              <span class="label">资产类型 <i class="req">*</i></span>
+              <select id="资产类型">
+                <option value="住宅类">住宅类</option>
+                <option value="商办厂房类">商办厂房类</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="holder">
+              <span class="label">持有主体类型 <i class="req">*</i></span>
+              <select id="持有主体类型">
+                <option value="自然人">自然人</option>
+                <option value="小规模纳税人有限责任公司">小规模纳税人有限责任公司</option>
+                <option value="一般纳税人有限责任公司">一般纳税人有限责任公司</option>
+                <option value="小规模纳税人有限合伙企业">小规模纳税人有限合伙企业</option>
+                <option value="一般纳税人有限合伙企业">一般纳税人有限合伙企业</option>
+              </select>
+            </label>
+            <label class="field" data-show="devmode">
+              <span class="label">开发企业销售模式</span>
+              <select id="开发销售模式">
+                <option value="正常房产销售">正常房产销售（新建商品房）</option>
+                <option value="自建办证后转让">自建办证后再转让</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">交易价格</div>
+          <div class="grid-2">
+            <label class="field" data-show="price">
+              <span class="label">成交总价（价税合计）<i class="req">*</i></span>
+              <input type="number" id="成交总价" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-show="price">
+              <span class="label">买卖双方角色视角</span>
+              <select id="视角">
+                <option value="both">同时测算买卖双方</option>
+                <option value="seller">仅看卖方税负</option>
+                <option value="buyer">仅看买方税负</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">
+            地区参数
+            <span class="group-hint" id="regionCityName">南京市 · 江苏省</span>
+          </div>
+          <div id="regionParams" class="region-params">
+            <p class="region-empty">选择城市后自动带出地方参数</p>
+          </div>
+          <p class="region-note">
+            地区参数取自 <code>research/地区参数表.md</code>；标「待确认」的项目请按当地规定手工填写。
+            手工填写后优先于地区默认值生效。
+          </p>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">口径开关</div>
+          <label class="field switch-field">
+            <span class="label">
+              自然人转让商办厂房类可否按差额计征增值税
+              <small>政策文义支持（2026年第10号公告四(八)），但部分地区执行口径不一，请按当地规定选择</small>
+            </span>
+            <select id="自然人商办允许差额">
+              <option value="是">允许差额（扣除购置原价）</option>
+              <option value="否">不允许差额（全额 3%）</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- 卖方要素 -->
+      <div class="tab-panel" data-panel="seller">
+        <div class="field-group">
+          <div class="group-title">持有与取得情况</div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">
+                买入日期（购房发票所载日期）
+                <small>用于计算土地增值税旧房加计扣除年数</small>
+              </span>
+              <input type="date" id="购房发票日期">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">
+                卖出日期（售房发票开具日期）
+                <small>留空则按当前日期计算</small>
+              </span>
+              <input type="date" id="售房发票日期">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">
+                持有年限（年）
+                <small id="持有年限提示">留空则按买入/卖出日期自动推算</small>
+              </span>
+              <input type="number" id="持有年限" placeholder="自动推算" min="0" step="1">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">房产取得时间</span>
+              <select id="房产取得时间">
+                <option value="2016.4.30前">2016.4.30 前取得</option>
+                <option value="2016.5.1后">2016.5.1 及以后取得</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">是否自建（开发产品自用）</span>
+              <select id="是否自建">
+                <option value="否">否</option>
+                <option value="是">是</option>
+              </select>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">建设/开工时间（开发企业）</span>
+              <select id="建设完成时间">
+                <option value="2016.4.30前">2016.4.30 前</option>
+                <option value="2016.5.1后">2016.5.1 及以后</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">“满五唯一”</span>
+              <select id="满五唯一">
+                <option value="否">否</option>
+                <option value="是">是（家庭唯一生活用房且满五年）</option>
+              </select>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">购置原价（计税依据参考）</span>
+              <input type="number" id="购置原价" placeholder="单位：元" min="0" step="0.01">
+            </label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">土地增值税扣除项</div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">评估价格</span>
+              <input type="number" id="评估价格" placeholder="旧房转让：优先采用" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">购房发票金额</span>
+              <input type="number" id="购房发票金额" placeholder="无评估价时使用" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">购房发票类型</span>
+              <select id="购房发票类型">
+                <option value="增值税普通发票">增值税普通发票（价税合计）</option>
+                <option value="增值税专用发票">增值税专用发票（不含税）</option>
+                <option value="营业税发票">营业税发票（票面金额）</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">专票不得抵扣的进项税额</span>
+              <input type="number" id="专票不得抵扣进项" placeholder="仅增值税专用发票需要" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">购房时已缴契税</span>
+              <input type="number" id="购房契税" placeholder="可作税金扣除，不进加计基数" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">土地价款（取得土地使用权支付金额）</span>
+              <input type="number" id="土地价款" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">取得土地支付的契税等配套规费</span>
+              <input type="number" id="取得土地支付的契税等" placeholder="单位：元" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">已发生开发成本</span>
+              <input type="number" id="已发生开发成本" placeholder="前期、建安、基础设施等" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">转让环节税金（附加等）</span>
+              <input type="number" id="转让环节税金" placeholder="城建税+教育费附加等" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">利息费用（可提供金融机构证明）</span>
+              <input type="number" id="利息费用" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">能否提供利息证明</span>
+              <select id="可提供利息证明">
+                <option value="否">否（按 10% 计算开发费用）</option>
+                <option value="是">是（利息 + 5% 计算）</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">核定征收率（土地增值税）</span>
+              <input type="number" id="核定征收率" value="5" placeholder="如 5" min="0" step="0.1">
+              <small>单位 %</small>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">进项税额（一般纳税人可抵扣）</span>
+              <input type="number" id="进项税额" placeholder="单位：元" min="0" step="0.01">
+            </label>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="group-title">所得税要素</div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">合理费用（自然人）</span>
+              <input type="number" id="合理费用" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">核定征收收入额（自然人）</span>
+              <input type="number" id="核定征收收入额" placeholder="留空则按成交总价" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">应纳税所得额（企业所得税）</span>
+              <input type="number" id="应纳税所得额_企业" placeholder="会计利润±纳税调整" min="0" step="0.01">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">符合小型微利企业条件</span>
+              <select id="符合小型微利企业">
+                <option value="否">否（25%）</option>
+                <option value="是">是（实际 5%）</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-when="seller">
+              <span class="label">自然人合伙人利润占比</span>
+              <input type="number" id="自然人合伙人利润占比" value="100" placeholder="单位 %" min="0" max="100" step="1">
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">合伙人个税计税方式</span>
+              <select id="合伙人个税计税方式">
+                <option value="财产转让所得 20%">财产转让所得 20%</option>
+                <option value="经营所得 5%-35%">经营所得 5%-35%</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 买方要素 -->
+      <div class="tab-panel" data-panel="buyer">
+        <div class="field-group">
+          <div class="group-title">买方主体信息</div>
+          <div class="grid-2">
+            <label class="field" data-show="buyer">
+              <span class="label">买方主体类型 <i class="req">*</i></span>
+              <select id="买方主体类型">
+                <option value="自然人">自然人</option>
+                <option value="小规模纳税人有限责任公司">小规模纳税人有限责任公司</option>
+                <option value="一般纳税人有限责任公司">一般纳税人有限责任公司</option>
+                <option value="小规模纳税人有限合伙企业">小规模纳税人有限合伙企业</option>
+                <option value="一般纳税人有限合伙企业">一般纳税人有限合伙企业</option>
+              </select>
+            </label>
+            <label class="field" data-show="buyer">
+              <span class="label">住房套数（自然人购买住宅）</span>
+              <select id="住房套数">
+                <option value="家庭唯一住房">家庭唯一住房</option>
+                <option value="家庭第二套住房">家庭第二套住房</option>
+                <option value="家庭第三套及以上住房">家庭第三套及以上住房</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="buyer">
+              <span class="label">建筑面积（㎡）</span>
+              <input type="number" id="建筑面积" placeholder="用于 140㎡ 优惠分档" min="0" step="0.01">
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 持有要素 -->
+      <div class="tab-panel" data-panel="holding">
+        <div class="field-group">
+          <div class="group-title">持有情况</div>
+          <div class="grid-2">
+            <label class="field" data-show="holding">
+              <span class="label">持有用途</span>
+              <select id="持有环节用途">
+                <option value="自用">自用</option>
+                <option value="出租">出租</option>
+              </select>
+            </label>
+            <label class="field" data-show="holding">
+              <span class="label">是否为营业用房</span>
+              <select id="是否营业用房">
+                <option value="否">否</option>
+                <option value="是">是</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="holding">
+              <span class="label">房产原值（从价计征）</span>
+              <input type="number" id="房产原值" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-show="holding">
+              <span class="label">减除比例</span>
+              <select id="减除比例">
+                <option value="30">30%（江苏/南京默认值）</option>
+                <option value="20">20%</option>
+                <option value="10">10%</option>
+              </select>
+              <small>江苏/南京 30%（苏政发〔1986〕172号）；其他地区请按当地规定选择</small>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="holding">
+              <span class="label">年租金收入（从租计征）</span>
+              <input type="number" id="年租金收入" placeholder="单位：元" min="0" step="0.01">
+            </label>
+            <label class="field" data-show="holding">
+              <span class="label">出租标的</span>
+              <select id="出租标的">
+                <option value="住房">住房</option>
+                <option value="非住房">非住房（商办厂房）</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="holding">
+              <span class="label">承租人类型（决定是否适用 4% 优惠）</span>
+              <select id="承租人类型">
+                <option value="其他企业">其他企业（不适用 4%）</option>
+                <option value="个人">个人</option>
+                <option value="专业化规模化住房租赁企业">专业化规模化住房租赁企业</option>
+              </select>
+            </label>
+            <label class="field" data-show="holding">
+              <span class="label">租金增值税率（价税分离）</span>
+              <input type="number" id="租金增值税率" value="0" placeholder="如 9，未考虑则填 0" min="0" step="0.01">
+            </label>
+          </div>
+          <div class="grid-2">
+            <label class="field" data-show="holding">
+              <span class="label">实际占用土地面积（㎡）</span>
+              <input type="number" id="实际占用面积" placeholder="单位：㎡" min="0" step="0.01">
+            </label>
+            <label class="field" data-show="holding">
+              <span class="label">土地等级（南京 1-7 类）</span>
+              <select id="土地等级">
+                <option value="1">一类（18 元/㎡）</option>
+                <option value="2">二类（15 元/㎡）</option>
+                <option value="3">三类（10 元/㎡）</option>
+                <option value="4">四类（7 元/㎡）</option>
+                <option value="5">五类（5 元/㎡）</option>
+                <option value="6">六类（3 元/㎡）</option>
+                <option value="7">七类（1.5 元/㎡）</option>
+              </select>
+              <small>宁政办发〔2019〕28号</small>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 右：结果区 ============ -->
+  <section class="panel panel-result">
+    <div class="result-head">
+      <h2>计算结果</h2>
+      <button class="btn btn-ghost btn-sm" id="btnExport">导出 CSV</button>
+    </div>
+
+    <div id="summaryCards" class="summary-cards"></div>
+    <div id="tips" class="tips"></div>
+    <div id="resultBody" class="result-body">
+      <div class="empty-state">
+        <div class="empty-icon">🧮</div>
+        <p>请在左侧填写要素，此处将实时展示税费测算结果</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 政策依据弹窗 -->
+<div class="modal" id="policyModal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-content">
+    <div class="modal-head">
+      <h3>政策依据与计算规则</h3>
+      <button class="btn btn-ghost btn-sm" data-close>关闭</button>
+    </div>
+    <div class="modal-body" id="policyBody"></div>
+  </div>
+</div>
+
+<script src="js/regions.js"></script>
+<script src="js/region-resolver.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
