@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>不动产交易及持有环节税费计算工具</title>
-<link rel="stylesheet" href="css/style.css?v=20261027b">
+<link rel="stylesheet" href="css/style.css?v=20261027c">
 </head>
 <body>
 <header class="app-header">
@@ -249,6 +249,16 @@
                 <option value="是">是（增值率≤20% 免征土增税）</option>
               </select>
               <small>依据条例第八条(一)</small>
+            </label>
+            <label class="field" data-when="seller">
+              <span class="label">土增税扣除方式</span>
+              <select id="土地增值税扣除方式">
+                <option value="">自动判断（按主体类型）</option>
+                <option value="发票加计">旧房 · 发票金额每年加计 5%</option>
+                <option value="评估价格">旧房 · 评估价格扣除</option>
+                <option value="房企新建">开发企业 · 新建商品房（加计 20%）</option>
+              </select>
+              <small>按实际取得的扣除凭证选择；选定后系统只启用对应字段，其余灰化</small>
             </label>
             <label class="field" data-when="seller">
               <span class="label">评估价格</span>
@@ -530,9 +540,9 @@
   </div>
 </div>
 
-<script src="js/regions.js?v=20261027b"></script>
-<script src="js/region-resolver.js?v=20261027b"></script>
-<script src="js/engine.js?v=20261027b"></script>
-<script src="js/app.js?v=20261027b"></script>
+<script src="js/regions.js?v=20261027c"></script>
+<script src="js/region-resolver.js?v=20261027c"></script>
+<script src="js/engine.js?v=20261027c"></script>
+<script src="js/app.js?v=20261027c"></script>
 </body>
 </html>

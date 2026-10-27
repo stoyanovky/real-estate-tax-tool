@@ -16,7 +16,7 @@
   ];
   const TEXT_FIELDS = ['城市', '主体类型', '资产类型', '持有主体类型', '开发销售模式', '视角',
     '房产取得时间', '是否自建', '建设完成时间', '建造开工时间', '满五唯一', '可提供利息证明',
-    'lvatUseApproved', 'iitUseApproved', '是普通标准住宅',
+    'lvatUseApproved', 'iitUseApproved', '是普通标准住宅', '土地增值税扣除方式',
     '符合小型微利企业', '合伙人个税计税方式', '买方主体类型', '住房套数',
     '持有环节用途', '是否营业用房', '减除比例', '出租标的', '承租人类型', '土地等级',
     '场景类型', '所在区域', '购房发票类型', '自然人商办允许差额',
@@ -195,24 +195,40 @@
     setField('自然人合伙人利润占比', isTransfer, isTransfer && isPartner);
     setField('合伙人个税计税方式', isTransfer, isTransfer && isPartner);
 
-    // ---------- 土增税扣除项 ----------
+    // ---------- 土增税扣除方式（显式三选一）----------
     const 需要旧房加计 = isTransfer && !isDevSale;
+    const 土增方式 = p['土地增值税扣除方式'] || '';
+    const 有明确选择 = !!土增方式;
+    const 选房企 = 土增方式 === '房企新建';
+    const 选评估 = 土增方式 === '评估价格';
+    const 选发票 = 土增方式 === '发票加计';
+
+    setField('土地增值税扣除方式', isTransfer);
+
+    // 房企新建商品房专用
+    const 可用房企字段 = 有明确选择 ? 选房企 : isDevSale;
+    setField('土地价款', isTransfer, isTransfer && (有明确选择 ? 选房企 : isDev));
+    setField('取得土地支付的契税等', isTransfer, isTransfer && 可用房企字段);
+    setField('已发生开发成本', isTransfer, isTransfer && 可用房企字段);
+    setField('转让环节税金', isTransfer, isTransfer && 可用房企字段);
+    setField('可提供利息证明', isTransfer, isTransfer && 可用房企字段);
+    // 无利息证明则只能按 (土地+成本)×10%，利息费用灰化
+    setField('利息费用', isTransfer, isTransfer && 可用房企字段 && 有息证明);
+
+    // 旧房专用（评估价 / 发票加计 二选一）
+    const 可用评估 = 有明确选择 ? 选评估 : 需要旧房加计;
+    const 可用发票 = 有明确选择 ? 选发票 : 需要旧房加计;
+    setField('评估价格', isTransfer, isTransfer && 可用评估);
+    setField('购房发票金额', isTransfer, isTransfer && 可用发票);
+    setField('购房发票类型', isTransfer, isTransfer && 可用发票);
+    setField('专票不得抵扣进项', isTransfer, isTransfer && 可用发票 && p['购房发票类型'] === '增值税专用发票');
+
     setField('持有年限', isTransfer, isTransfer && (isNatural || !isDevSale));
     setField('购房发票日期', isTransfer, 需要旧房加计);
     setField('售房发票日期', isTransfer, 需要旧房加计);
-    // 土地价款只有房企（增值税差额扣除）用
-    setField('土地价款', isTransfer, isTransfer && isDev);
-    setField('取得土地支付的契税等', isTransfer, isTransfer && isDevSale);
-    setField('已发生开发成本', isTransfer, isTransfer && isDevSale);
-    setField('转让环节税金', isTransfer, isTransfer && isDevSale);
-    setField('可提供利息证明', isTransfer, isTransfer && isDevSale);
-    // 无利息证明则只能按 (土地+成本)×10%，利息费用灰化
-    setField('利息费用', isTransfer && isDevSale, isTransfer && isDevSale && 有息证明);
-    setField('评估价格', isTransfer, 需要旧房加计);
-    setField('购房发票金额', isTransfer, 需要旧房加计);
     setField('是普通标准住宅', isTransfer, isTransfer && 是住宅);
     // 土增核定率：未勾选「使用核定征收」则灰化
-    setField('核定征收率', 需要旧房加计, 需要旧房加计 && 允许土增核定);
+    setField('核定征收率', isTransfer, isTransfer && 需要旧房加计 && 允许土增核定);
     // 购置原价：自建无原价；房企新项目全额计税也不需要
     setField('购置原价', isTransfer && (!isDev || 老不动产), isTransfer && !自建 && (!isDev || 老不动产));
 
@@ -231,9 +247,8 @@
     setField('实际占用面积', holding, holding && p['是否营业用房'] === '是');
     setField('土地等级', holding, holding && p['是否营业用房'] === '是');
 
-    // ---------- 发票 ----------
-    setField('购房发票类型', isTransfer, 需要旧房加计);
-    setField('专票不得抵扣进项', isTransfer, 需要旧房加计 && p['购房发票类型'] === '增值税专用发票');
+    // ---------- 其他 ----------
+    // 购房发票类型/专票字段已在「旧房专用」区块按扣除方式控制，此处不重复设置
     setField('购房契税', isTransfer, 需要旧房加计);
   }
 
