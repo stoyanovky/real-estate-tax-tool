@@ -71,8 +71,6 @@
       hint: '国税发〔2006〕108号幅度 1%-3%，地方自定（填 1 表示 1%）' },
     localEduSurtax: { label: '地方教育附加', unit: '%', type: 'number', kind: 'pct',
       hint: '财综〔2010〕98号授权地方自定，普遍 2%（填 2 表示 2%）' },
-    devExpenseRate: { label: '省级开发费用扣除比例', unit: '%', type: 'number', kind: 'pct',
-      hint: '国税函〔2010〕220号：具体比例按省级规定执行（填 5 表示 5%）' },
   };
 
   const SRC_LABEL = { city: '市定', province: '省定', default: '全国默认', manual: '手工', none: '待确认' };
@@ -111,8 +109,8 @@
           displayVal = (row.value || []).join(',');
         }
       }
-      // 小数型参数（契税税率）手工填写时按「%」展示：0.03 → 3
-      if (src === 'manual' && RP_FIELD_MAP[key].kind === 'dec') {
+      // 小数型参数（契税税率）一律按「%」展示：0.03 → 3（含地区默认值，原实现仅手工值才换算）
+      if (RP_FIELD_MAP[key] && RP_FIELD_MAP[key].kind === 'dec') {
         const n = Number(val);
         if (isFinite(n) && n > 0 && n <= 1) displayVal = (n * 100).toFixed(2).replace(/\.00$/, '');
       }
@@ -142,6 +140,12 @@
   }
 
   /* ---------------- 条件显隐 ---------------- */
+  /**
+   * 场景联动：字段「显示 / 隐藏 / 灰化」
+   * 规则：
+   *   ① 与当前场景完全无关（如交易场景下的持有字段）→ 隐藏
+   *   ② 同一表单内条件不满足（如非自然人买方的住房套数）→ 灰化（可见但不可编辑）
+   */
   function applyVisibility(p) {
     const scene = p['场景类型'];
     $$('[data-show]').forEach((el) => {
@@ -155,57 +159,82 @@
       el.classList.toggle('hidden', !show);
     });
 
-    // 卖方要素标签页：自然人住宅 / 开发企业 等差异
-    const isDev = (p['主体类型'] || '').includes('开发企业');
-    const isNatural = p['主体类型'] === '自然人';
-    const isSmall = (p['主体类型'] || '').includes('小规模');
+    // ---------- 上下文判定 ----------
+    const 主体 = p['主体类型'] || '';
+    const isDev = 主体.includes('开发企业');
+    const isNatural = 主体 === '自然人';
+    const isSmall = 主体.includes('小规模');
+    const isPartner = 主体.includes('有限合伙');
     const isTransfer = scene === 'transfer';
-
-    // 增值税相关
-    setVisible('房产取得时间', isTransfer && !isNatural && !isDev);
-    // 【修复问题13】正常销售用「建造开工时间」判老项目；自建办证后用「建设完成时间」
-    setVisible('建造开工时间', isTransfer && isDev && p['开发销售模式'] === '正常房产销售');
-    setVisible('建设完成时间', isTransfer && isDev && p['开发销售模式'] !== '正常房产销售');
-    // 【修复问题15】是否自建对「非自然人」全部可见（一般纳税人老自建房也需区分全额/差额）
-    setVisible('是否自建', isTransfer && !isNatural);
-    setVisible('进项税额', isTransfer);
-    setVisible('满五唯一', isTransfer && isNatural && p['资产类型'] === '住宅类');
-    setVisible('合理费用', isTransfer && isNatural);
-    setVisible('核定征收收入额', isTransfer && isNatural);
-    // 【修复问题20】合伙企业同样需要填利润（穿透计税），不再隐藏
-    setVisible('应纳税所得额_企业', isTransfer && !isNatural);
-    // 【修复问题17】小型微利企业资格：非自然人均可见（一般纳税人也可能是小微）
-    setVisible('符合小型微利企业', !isNatural);
-    setVisible('自然人合伙人利润占比', isTransfer && (p['主体类型'] || '').includes('有限合伙'));
-    setVisible('合伙人个税计税方式', isTransfer && (p['主体类型'] || '').includes('有限合伙'));
-
-    // 土增税扣除项
-    const isDevSale = isDev && p['开发销售模式'] === '正常房产销售';
-    // 持有年限与买卖日期：凡涉及旧房转让加计扣除的场景都要能填
-    // （原规则在商办厂房类企业、房企等场景下隐藏，导致加计年数恒为 0）
-    const 需要旧房加计 = isTransfer && !isDevSale;
-    setVisible('持有年限', isTransfer && (isNatural || !isDevSale));
-    setVisible('购房发票日期', 需要旧房加计);
-    setVisible('售房发票日期', 需要旧房加计);
-    setVisible('土地价款', isTransfer);
-    setVisible('取得土地支付的契税等', isDevSale);
-    setVisible('已发生开发成本', isDevSale);
-    setVisible('转让环节税金', isDevSale);
-    setVisible('利息费用', isDevSale);
-    setVisible('可提供利息证明', isDevSale);
-    setVisible('评估价格', isTransfer && !isDevSale);
-    setVisible('是普通标准住宅', isTransfer && p['资产类型'] === '住宅类');
-    setVisible('购房发票金额', isTransfer && !isDevSale);
-    setVisible('核定征收率', isTransfer && !isDevSale);
-    // 【修复问题14】购置原价：除房企新项目外均应可见（自然人差额计税同样需要）
-    setVisible('购置原价', isTransfer && (!isDev || p['房产取得时间'] === '2016.4.30前'));
-
-    // 持有环节
     const holding = scene === 'holding';
-    setVisible('承租人类型', holding && p['持有环节用途'] === '出租' && p['出租标的'] === '住房');
-    setVisible('购房发票类型', isTransfer && !isDevSale);
-    setVisible('专票不得抵扣进项', isTransfer && !isDevSale && p['购房发票类型'] === '增值税专用发票');
-    setVisible('购房契税', isTransfer && !isDevSale);
+    const isDevSale = isDev && p['开发销售模式'] === '正常房产销售';
+    const 是住宅 = p['资产类型'] === '住宅类';
+    const 买方主体 = p['买方主体类型'] || 主体;
+    const 买方自然人 = 买方主体 === '自然人';
+    const 出租 = p['持有环节用途'] === '出租';
+    const 出租住房 = p['出租标的'] === '住房';
+    const 自建 = p['是否自建'] === '是';
+    const 老不动产 = p['房产取得时间'] === '2016.4.30前';
+    const 有息证明 = p['可提供利息证明'] === '是';
+    const 允许土增核定 = p['lvatUseApproved'] === '是';
+    const 允许个税核定 = p['iitUseApproved'] === '是';
+
+    // ---------- 增值税 ----------
+    setField('房产取得时间', isTransfer, isTransfer && !isNatural && !isDev);
+    setField('建造开工时间', isTransfer, isTransfer && isDevSale);
+    setField('建设完成时间', isTransfer, isTransfer && isDev && !isDevSale);
+    setField('是否自建', isTransfer, isTransfer && !isNatural);
+    // 进项税额只有一般纳税人能抵扣（自然人/小规模不抵扣）
+    setField('进项税额', isTransfer, isTransfer && !isNatural && !isSmall);
+    setField('满五唯一', isTransfer, isTransfer && isNatural && 是住宅);
+    setField('合理费用', isTransfer, isTransfer && isNatural);
+    // 个税核定收入额：未勾选「使用核定征收」则灰化
+    setField('核定征收收入额', isTransfer && isNatural, isTransfer && isNatural && 允许个税核定);
+    setField('应纳税所得额_企业', isTransfer, isTransfer && !isNatural);
+    setField('符合小型微利企业', isTransfer, isTransfer && !isNatural);
+    setField('自然人合伙人利润占比', isTransfer, isTransfer && isPartner);
+    setField('合伙人个税计税方式', isTransfer, isTransfer && isPartner);
+
+    // ---------- 土增税扣除项 ----------
+    const 需要旧房加计 = isTransfer && !isDevSale;
+    setField('持有年限', isTransfer, isTransfer && (isNatural || !isDevSale));
+    setField('购房发票日期', isTransfer, 需要旧房加计);
+    setField('售房发票日期', isTransfer, 需要旧房加计);
+    // 土地价款只有房企（增值税差额扣除）用
+    setField('土地价款', isTransfer, isTransfer && isDev);
+    setField('取得土地支付的契税等', isTransfer, isTransfer && isDevSale);
+    setField('已发生开发成本', isTransfer, isTransfer && isDevSale);
+    setField('转让环节税金', isTransfer, isTransfer && isDevSale);
+    setField('可提供利息证明', isTransfer, isTransfer && isDevSale);
+    // 无利息证明则只能按 (土地+成本)×10%，利息费用灰化
+    setField('利息费用', isTransfer && isDevSale, isTransfer && isDevSale && 有息证明);
+    setField('评估价格', isTransfer, 需要旧房加计);
+    setField('购房发票金额', isTransfer, 需要旧房加计);
+    setField('是普通标准住宅', isTransfer, isTransfer && 是住宅);
+    // 土增核定率：未勾选「使用核定征收」则灰化
+    setField('核定征收率', 需要旧房加计, 需要旧房加计 && 允许土增核定);
+    // 购置原价：自建无原价；房企新项目全额计税也不需要
+    setField('购置原价', isTransfer && (!isDev || 老不动产), isTransfer && !自建 && (!isDev || 老不动产));
+
+    // ---------- 买方 ----------
+    setField('买方主体类型', isTransfer);
+    // ★ 住房套数只对自然人买方有意义 → 非自然人灰化
+    setField('住房套数', isTransfer, isTransfer && 买方自然人);
+
+    // ---------- 持有环节 ----------
+    setField('房产原值', holding, holding && !出租);        // 从价计征用
+    setField('年租金收入', holding, holding && 出租);        // 从租计征用
+    setField('租金增值税率', holding, holding && 出租);
+    setField('出租标的', holding, holding && 出租);
+    // 4% 优惠只针对「出租住房」，商办出租不需要承租人类型
+    setField('承租人类型', holding && 出租 && 出租住房);
+    setField('实际占用面积', holding, holding && p['是否营业用房'] === '是');
+    setField('土地等级', holding, holding && p['是否营业用房'] === '是');
+
+    // ---------- 发票 ----------
+    setField('购房发票类型', isTransfer, 需要旧房加计);
+    setField('专票不得抵扣进项', isTransfer, 需要旧房加计 && p['购房发票类型'] === '增值税专用发票');
+    setField('购房契税', isTransfer, 需要旧房加计);
   }
 
   /** 更新「持有年限」字段下方的提示 */
@@ -219,12 +248,31 @@
     }
   }
 
-  function setVisible(id, show) {
+  /**
+   * 统一设置字段状态
+   * @param {string} id       字段 id
+   * @param {boolean} visible 是否显示（false=隐藏）
+   * @param {boolean} [enabled] 是否可编辑（默认同 visible；true+false 组合 = 可见但灰化）
+   */
+  function setField(id, visible, enabled) {
     const el = document.getElementById(id);
     if (!el) return;
+    const canEdit = (enabled === undefined) ? visible : enabled;
     const field = el.closest('.field');
-    if (field) field.classList.toggle('hidden', !show);
+    if (field) {
+      field.classList.toggle('hidden', !visible);
+      field.classList.toggle('is-disabled', !canEdit);
+    }
+    el.disabled = !canEdit;
+    // 隐藏时清空值，避免残留值参与计算
+    if (!visible) {
+      if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else if (el.type !== 'checkbox' && el.type !== 'radio') el.value = '';
+    }
   }
+
+  /** 兼容旧调用：仅控制显示 */
+  function setVisible(id, show) { setField(id, show); }
 
   /* ---------------- 渲染结果 ---------------- */
   function render(p, r) {
@@ -508,7 +556,6 @@
       <tr><td>土地增值税核定征收率</td><td>%</td><td>土地增值税</td><td>市级</td><td>地方自定，无全国统一值</td></tr>
       <tr><td>个税核定征收比例</td><td>%</td><td>个人所得税</td><td>市级</td><td>国税发〔2006〕108号 幅度 1%-3%</td></tr>
       <tr><td>地方教育附加</td><td>%</td><td>增值税附加</td><td>省级</td><td>财综〔2010〕98号授权地方自定</td></tr>
-      <tr><td>省级开发费用扣除比例</td><td>%</td><td>土地增值税</td><td>省级</td><td>国税函〔2010〕220号</td></tr>
     </table>
     <p class="src">覆盖优先级：手工填写 &gt; 城市级参数 &gt; 省级参数 &gt; 全国通用默认值。地区参数表见 <code>research/地区参数表.md</code>，数据文件见 <code>app/js/regions.js</code>。</p>
 

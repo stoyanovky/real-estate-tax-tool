@@ -121,6 +121,22 @@ input::placeholder { color: #b4bcc9; }
 
 /* 隐藏字段 */
 .field.hidden, [data-show].hidden { display: none !important; }
+
+/* ===== 场景联动：字段不适用时灰化（仍可见，但不可编辑） ===== */
+.field.is-disabled { opacity: .45; }
+.field.is-disabled .label { color: var(--ink-3); }
+.field.is-disabled input,
+.field.is-disabled select {
+  background: #f2f2f2;
+  border-color: #e0e0e0;
+  cursor: not-allowed;
+}
+.field.is-disabled .label::after {
+  content: '（不适用）';
+  font-size: 11px;
+  color: #999;
+  font-weight: 400;
+}
 [hidden] { display: none !important; }
 
 /* ---------- Result ---------- */
